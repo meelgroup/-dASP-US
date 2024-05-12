@@ -298,8 +298,6 @@ def main():
             sampler.clause_in_residual.append(c)
 
     start = time.time()
-    sampler.getsamples(sampler.treenodes[-1],np.arange(0,totalsamples))
-    print("Time taken by sampling:", time.time()-start)
     # f = open(args.outputfile,"w+")
     # if randAssign:
     #     sampler.samples = list(map(lambda x: random_assignment(sampler.totalvariables, x, sampler.useList), sampler.samples))
@@ -317,53 +315,70 @@ def main():
     #         f.close()
     # print("Samples saved to", args.outputfile)
     found_answer_set = 0
-    for i in range(totalsamples):
-        print("Checking models {0}".format(i + 1))
-        f = open("temp_" + RESIDUALCNF, 'w')
-        assignment = [int(_) for _ in sampler.samples[i].split()]
-        positive_assignments = []
-        negative_assignments = []
-        # get assignment of the current sample
-        for var_index in range(1, sampler.num_var_in_residual + 1):
-            if var_index in assignment:
-                positive_assignments.append(var_index)
-            elif -var_index in assignment: 
-                negative_assignments.append(var_index)
-            else:
-                assert("A variable is not assigned to any value" and False)
+    s = 26
+    x = 0
+    while True:
+        sampler.samples = []
+        requiredSamples = 2 * (s - found_answer_set)
+        for i in range(requiredSamples):
+            sampler.samples.append('')
+        sampler.getsamples(sampler.treenodes[-1],np.arange(0, requiredSamples))
+        for i in range(len(sampler.samples)):
+            print("Checking models {0}".format(x + 1))
+            f = open("temp_" + RESIDUALCNF, 'w')
+            assignment = [int(_) for _ in sampler.samples[i].split()]
+            positive_assignments = []
+            negative_assignments = []
+            # get assignment of the current sample
+            for var_index in range(1, sampler.num_var_in_residual + 1):
+                if var_index in assignment:
+                    positive_assignments.append(var_index)
+                elif -var_index in assignment: 
+                    negative_assignments.append(var_index)
+                else:
+                    if random.randint(0,1) == 0:
+                        negative_assignments.append(var_index)
+                    else: 
+                        positive_assignments.append(var_index)
 
-        f.write("p cnf {0} {1}\n".format(sampler.num_var_in_residual, sampler.num_clause_in_residual + len(negative_assignments) + 1))
-        # ordinal clauses
-        for each_clause in sampler.clause_in_residual:
-            f.write("".join(str(_) + " " for _ in each_clause) + "0\n")
+            f.write("p cnf {0} {1}\n".format(sampler.num_var_in_residual, sampler.num_clause_in_residual + len(negative_assignments) + 1))
+            # ordinal clauses
+            for each_clause in sampler.clause_in_residual:
+                f.write("".join(str(_) + " " for _ in each_clause) + "0\n")
 
-        # negative assignment 
-        for each_assign_to_false in negative_assignments:
-            assert(each_assign_to_false <= sampler.num_var_in_residual)
-            f.write(str(-each_assign_to_false) + " 0\n")
-        
-        # blocking clause
-        f.write("".join(str(-_) + " " for _ in positive_assignments) + " 0\n")
-        # checking whether satisfiable or not
-        # for each_assign_to_true in positive_assignments:
-        #     assert(each_assign_to_true <= sampler.num_var_in_residual)
-        #     f.write(str(each_assign_to_true) + " 0\n")
-        f.close()
+            # negative assignment 
+            for each_assign_to_false in negative_assignments:
+                assert(each_assign_to_false <= sampler.num_var_in_residual)
+                f.write(str(-each_assign_to_false) + " 0\n")
+            
+            # blocking clause
+            f.write("".join(str(-_) + " " for _ in positive_assignments) + " 0\n")
+            # checking whether satisfiable or not
+            # for each_assign_to_true in positive_assignments:
+            #     assert(each_assign_to_true <= sampler.num_var_in_residual)
+            #     f.write(str(each_assign_to_true) + " 0\n")
+            f.close()
 
-        cmd = './cadical {0} > result-{0}'.format("temp_" + RESIDUALCNF)
-        os.system(cmd)
+            cmd = './cadical {0} > result-{0}'.format("temp_" + RESIDUALCNF)
+            os.system(cmd)
 
-        with open('result-{0}'.format("temp_" + RESIDUALCNF)) as f:
-            treetext = f.readlines()
-        unsat = False
-        for result in treetext:
-            if "s UNSATISFIABLE" in result:
-                unsat = True
+            with open('result-{0}'.format("temp_" + RESIDUALCNF)) as f:
+                treetext = f.readlines()
+            unsat = False
+            for result in treetext:
+                if "s UNSATISFIABLE" in result:
+                    unsat = True
+                    break
+            if unsat:
+                found_answer_set += 1
+            x += 1
+            if s <= found_answer_set:
                 break
-        if unsat:
-            found_answer_set += 1
-
-    print("Total samples: {0} and answer sets: {1}".format(totalsamples, found_answer_set))
+        print("Total samples: {0} and answer sets: {1}".format(x, found_answer_set))
+        if s <= found_answer_set:
+            break
+    print("Time taken by DKLR and Sampling:", time.time()-start)
+    print("Total samples: {0} and answer sets: {1}".format(x, found_answer_set))
 
 if __name__== "__main__":
     main()
