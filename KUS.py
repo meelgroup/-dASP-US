@@ -208,10 +208,12 @@ def main():
     countPickle = False
     DIMACSCNF = ""
     RESIDUALCNF = ""
+    BASEASP = ""
     printCompilerOutput = False
     if args.DIMACSCNF:
         DIMACSCNF = args.DIMACSCNF
-        RESIDUALCNF = DIMACSCNF.replace("model_", "residual_")
+        RESIDUALCNF = DIMACSCNF.replace("model_", "map_")
+        BASEASP = DIMACSCNF.replace("model_", "")[:-len(".out")]
     elif args.dDNNF:
         dDNNF = args.dDNNF
     elif args.countPickle:
@@ -283,19 +285,15 @@ def main():
         sampler.samples = []
         for i in range(totalsamples):
             sampler.samples.append('')
-
+    atom_map_symbol = dict()
     ## start working with residual formula
     for line in open(RESIDUALCNF, 'r'):
-        l = line.split()
-        if line.startswith("p cnf"):
-            # number of variables and clauses
-            sampler.num_var_in_residual = int(l[-2])
-            sampler.num_clause_in_residual = int(l[-1])
-        elif line.startswith("c"):
+        l = line.split("=>")
+        l = [_.strip() for _ in l]
+        if "#noname#" in l[1]:
             continue
-        else:
-            c = [int(_) for _ in line.split() if int(_) != 0]
-            sampler.clause_in_residual.append(c)
+        atom_map_symbol[int(l[0])] = l[1]
+
 
     start = time.time()
     # f = open(args.outputfile,"w+")
@@ -319,7 +317,7 @@ def main():
     x = 0
     while True:
         sampler.samples = []
-        requiredSamples = 2 * (s - found_answer_set)
+        requiredSamples = 2 * (s - found_answer_set)  ## taking twice as many samples
         for i in range(requiredSamples):
             sampler.samples.append('')
         sampler.getsamples(sampler.treenodes[-1],np.arange(0, requiredSamples))
@@ -330,7 +328,7 @@ def main():
             positive_assignments = []
             negative_assignments = []
             # get assignment of the current sample
-            for var_index in range(1, sampler.num_var_in_residual + 1):
+            for var_index in atom_map_symbol.keys():
                 if var_index in assignment:
                     positive_assignments.append(var_index)
                 elif -var_index in assignment: 
@@ -341,32 +339,46 @@ def main():
                     else: 
                         positive_assignments.append(var_index)
 
-            f.write("p cnf {0} {1}\n".format(sampler.num_var_in_residual, sampler.num_clause_in_residual + len(negative_assignments) + 1))
-            # ordinal clauses
-            for each_clause in sampler.clause_in_residual:
-                f.write("".join(str(_) + " " for _ in each_clause) + "0\n")
+            # f.write("p cnf {0} {1}\n".format(sampler.num_var_in_residual, sampler.num_clause_in_residual + len(negative_assignments) + 1))
+            # # ordinal clauses
+            # for each_clause in sampler.clause_in_residual:
+            #     f.write("".join(str(_) + " " for _ in each_clause) + "0\n")
 
-            # negative assignment 
-            for each_assign_to_false in negative_assignments:
-                assert(each_assign_to_false <= sampler.num_var_in_residual)
-                f.write(str(-each_assign_to_false) + " 0\n")
+            # # negative assignment 
+            # for each_assign_to_false in negative_assignments:
+            #     assert(each_assign_to_false <= sampler.num_var_in_residual)
+            #     f.write(str(-each_assign_to_false) + " 0\n")
             
-            # blocking clause
-            f.write("".join(str(-_) + " " for _ in positive_assignments) + " 0\n")
+            # # blocking clause
+            # f.write("".join(str(-_) + " " for _ in positive_assignments) + " 0\n")
             # checking whether satisfiable or not
             # for each_assign_to_true in positive_assignments:
             #     assert(each_assign_to_true <= sampler.num_var_in_residual)
             #     f.write(str(each_assign_to_true) + " 0\n")
-            f.close()
+            # f.close()
+            condition_str = ""
+            for _ in positive_assignments:
+                condition_str += ":- not {0}. ".format(atom_map_symbol[_])
 
-            cmd = './cadical {0} > result-{0}'.format("temp_" + RESIDUALCNF)
+            for _ in negative_assignments:
+                condition_str += ":- {0}. ".format(atom_map_symbol[_])
+
+            condition_str += "\n"
+
+            cmd = 'cp {0} temp_{0}'.format(BASEASP)
             os.system(cmd)
 
-            with open('result-{0}'.format("temp_" + RESIDUALCNF)) as f:
+            with open("temp_{0}".format(BASEASP), "a") as myfile:
+                myfile.write(condition_str)
+
+            cmd = './clingo -q {0} > result-{0}'.format("temp_" + BASEASP)
+            os.system(cmd)
+
+            with open('result-{0}'.format("temp_" + BASEASP)) as f:
                 treetext = f.readlines()
             unsat = False
             for result in treetext:
-                if "s UNSATISFIABLE" in result:
+                if "SATISFIABLE" in result and "UNSATISFIABLE" not in result:
                     unsat = True
                     break
             if unsat:
